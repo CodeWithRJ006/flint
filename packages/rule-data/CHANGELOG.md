@@ -1,5 +1,11 @@
 # @flint.fyi/rule-data
 
+## 0.5.9
+
+### Patch Changes
+
+- [#3964](https://github.com/flint-fyi/flint/pull/3964) [`624eab5`](https://github.com/flint-fyi/flint/commit/624eab5d49e0c175bdaf50e481c8deec4c78bb52) - Add the missing Biome rule mappings for the Biome rules added since the last rule data sync.
+
 ## 0.5.8
 
 ### Patch Changes
