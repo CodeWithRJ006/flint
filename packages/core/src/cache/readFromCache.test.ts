@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createVFSLinterHost } from "../host/createVFSLinterHost.ts";
+import { LintSessionResults } from "../running/LintSessionResults.ts";
 import type { CacheStorage } from "../types/cache.ts";
 import type { VFSLinterHost } from "../types/host.ts";
 import { cacheStorageSchema } from "./cacheFormat.ts";
@@ -38,12 +39,28 @@ function createHostWithCache(
 	return host;
 }
 
-function read(host: VFSLinterHost, allFilePaths: string[]) {
-	return readFromCache(
+async function read(host: VFSLinterHost, allFilePaths: string[]) {
+	const checkpoint = await readFromCache(
 		host,
 		new Set(allFilePaths),
 		configFilePath,
 		cacheFilePath,
+	);
+	if (!checkpoint) {
+		return;
+	}
+	const results = new LintSessionResults(
+		new Set(allFilePaths),
+		host.getCurrentDirectory(),
+		host.isCaseSensitiveFS(),
+	);
+	results.restoreCheckpoint(checkpoint.files);
+	const affected = results.getAffectedFilePaths(checkpoint.changedFilePaths);
+	return new Map(
+		Array.from(checkpoint.files).filter(
+			([filePath]) =>
+				allFilePaths.includes(filePath) && !affected.has(filePath),
+		),
 	);
 }
 
@@ -135,7 +152,7 @@ describe(readFromCache, () => {
 		expect(cached && Array.from(cached.keys())).toEqual([]);
 	});
 
-	it("keeps dependents cached when a dependency inside the lint set was touched after the cache was written", async () => {
+	it("invalidates dependents when a dependency inside the lint set was touched after the cache was written", async () => {
 		const dependentPath = "/root/src/dependent.ts";
 		const host = createHostWithCache(
 			{
@@ -159,6 +176,6 @@ describe(readFromCache, () => {
 
 		const cached = await read(host, [dependentPath, filePath]);
 
-		expect(cached && Array.from(cached.keys())).toEqual([dependentPath]);
+		expect(cached && Array.from(cached.keys())).toEqual([]);
 	});
 });
