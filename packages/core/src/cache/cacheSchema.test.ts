@@ -327,10 +327,12 @@ describe("cacheStorageSchema", () => {
 			files: {
 				"a.ts": {
 					dependencies: ["/shared/a.ts", "/shared/b.ts"],
+					structuralDependencies: ["/shared/config.json"],
 					timestamp: 1,
 				},
 				"b.ts": {
 					dependencies: ["/shared/a.ts", "/shared/b.ts"],
+					structuralDependencies: ["/shared/config.json"],
 					timestamp: 2,
 				},
 				"c.ts": { dependencies: ["/shared/a.ts"], timestamp: 3 },
@@ -339,7 +341,7 @@ describe("cacheStorageSchema", () => {
 					timestamp: 4,
 				},
 				"emoji-😀.ts": {
-					dependencies: ["/shared/config-😁.json"],
+					structuralDependencies: ["/shared/config-😁.json"],
 					timestamp: 6,
 				},
 				"empty.ts": { dependencies: [], timestamp: 5 },
@@ -352,6 +354,9 @@ describe("cacheStorageSchema", () => {
 		expect(decoded.files["a.ts"]?.dependencies).toBe(
 			decoded.files["b.ts"]?.dependencies,
 		);
+		expect(decoded.files["a.ts"]?.structuralDependencies).toBe(
+			decoded.files["b.ts"]?.structuralDependencies,
+		);
 		expect(decoded.files["a.ts"]?.dependencies).not.toBe(
 			decoded.files["c.ts"]?.dependencies,
 		);
@@ -361,12 +366,13 @@ describe("cacheStorageSchema", () => {
 		{ paths: [[1, "a.ts"]] },
 		{ groups: [[1, []]] },
 		{ groups: [[0, [1]]] },
-		{ files: [[1, 123, -1]] },
-		{ files: [[0, 123, 1]] },
+		{ files: [[1, 123, -1, -1]] },
+		{ files: [[0, 123, 1, -1]] },
+		{ files: [[0, 123, -1, 1]] },
 	])("rejects invalid table references and prefixes: %j", (invalid) => {
 		const stored = {
 			configs: [],
-			files: [[0, 123, -1]],
+			files: [[0, 123, -1, -1]],
 			groups: [[0, []]],
 			paths: [[0, "a.ts"]],
 			version: cacheVersion,
@@ -382,14 +388,17 @@ describe("cacheStorageSchema", () => {
 		).toBe(false);
 	});
 
-	it("rejects non-path dependency values", () => {
-		expect(
-			cacheStorageSchema.safeEncode({
-				configs: {},
-				files: { "a.ts": { dependencies: [123], timestamp: 1 } },
-			} as unknown as CacheStorage).success,
-		).toBe(false);
-	});
+	it.each(["dependencies", "structuralDependencies"])(
+		"rejects non-path values in %s",
+		(field) => {
+			expect(
+				cacheStorageSchema.safeEncode({
+					configs: {},
+					files: { "a.ts": { [field]: [123], timestamp: 1 } },
+				}).success,
+			).toBe(false);
+		},
+	);
 
 	it("encodes valid cache data to JSON string", () => {
 		const validCache: CacheStorage = {

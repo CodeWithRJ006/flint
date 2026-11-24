@@ -9,7 +9,7 @@ export const cacheVersion = 1;
 
 export interface StoredCache {
 	configs: [number, number][];
-	files: [number, number, number, Record<string, unknown>?][];
+	files: [number, number, number, number, Record<string, unknown>?][];
 	groups: [number, number[]][];
 	paths: [number, string][];
 	version?: typeof cacheVersion;
@@ -22,6 +22,7 @@ export const storedCacheSchema: z.ZodType<StoredCache> = z.object({
 		z.tuple([
 			referenceSchema,
 			z.number(),
+			z.int().min(-1),
 			z.int().min(-1),
 			z.record(z.string(), z.unknown()).exactOptional(),
 		]),
@@ -66,19 +67,27 @@ export function decodeCacheStorage(stored: StoredCache): CacheStorage {
 			]),
 		),
 		files: Object.fromEntries(
-			stored.files.map(([path, timestamp, dependencies, metadata]) => [
-				nullThrows(paths[path], "Cached file path exists"),
-				{
-					...metadata,
-					...(dependencies !== -1 && {
-						dependencies: nullThrows(
-							groups[dependencies],
-							"Cached dependencies exist",
-						),
-					}),
-					timestamp,
-				},
-			]),
+			stored.files.map(
+				([path, timestamp, dependencies, structural, metadata]) => [
+					nullThrows(paths[path], "Cached file path exists"),
+					{
+						...metadata,
+						...(dependencies !== -1 && {
+							dependencies: nullThrows(
+								groups[dependencies],
+								"Cached dependencies exist",
+							),
+						}),
+						...(structural !== -1 && {
+							structuralDependencies: nullThrows(
+								groups[structural],
+								"Cached structural dependencies exist",
+							),
+						}),
+						timestamp,
+					},
+				],
+			),
 		),
 		...(stored.version && { version: stored.version }),
 	};
@@ -116,11 +125,15 @@ export function encodeCacheStorage(storage: CacheStorage): StoredCache {
 	}
 
 	const files = Object.entries(storage.files).map(
-		([path, { dependencies, timestamp, ...metadata }]) => {
+		([
+			path,
+			{ dependencies, structuralDependencies, timestamp, ...metadata },
+		]) => {
 			const entry: StoredCache["files"][number] = [
 				getPathId(path),
 				timestamp,
 				getGroupId(dependencies),
+				getGroupId(structuralDependencies),
 			];
 			if (Object.keys(metadata).length) {
 				entry.push(metadata);
@@ -154,6 +167,10 @@ export function encodeCacheStorage(storage: CacheStorage): StoredCache {
 			file[2] === -1
 				? -1
 				: nullThrows(orderedIds.get(file[2]), "Dependency group exists");
+		file[3] =
+			file[3] === -1
+				? -1
+				: nullThrows(orderedIds.get(file[3]), "Structural group exists");
 	}
 	let previousGroup: number[] = [];
 	const storedGroups = ordered.map(({ values }): [number, number[]] => {

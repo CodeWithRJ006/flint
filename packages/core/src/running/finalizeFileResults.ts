@@ -13,10 +13,11 @@ import type { LanguageAndFile } from "./types.ts";
 const log = debugForFile(import.meta.url);
 
 export interface FinalizedFileResults {
-	dependencies: Set<string>;
+	dependencies: ReadonlySet<string>;
 	isGlobalDependency?: boolean;
 	languageReports: LanguageReport[];
 	reports: FileReport[];
+	structuralDependencies?: ReadonlySet<string>;
 }
 
 /**
@@ -34,6 +35,7 @@ export function finalizeFileResults(
 ): FinalizedFileResults {
 	const directivesFilterer = new DirectivesFilterer();
 	const fileDependencies = new Set<string>();
+	const structuralDependencies = new Set<string>();
 	const languageReports: LanguageReport[] = [];
 	let isGlobalDependency = false;
 
@@ -44,6 +46,14 @@ export function finalizeFileResults(
 		}
 
 		const cacheImpacts = language.getFileCacheImpacts?.(file, host);
+		for (const dependency of cacheImpacts?.structuralDependencies ?? []) {
+			structuralDependencies.add(
+				pathKey(
+					resolve(host.getCurrentDirectory(), dependency),
+					host.isCaseSensitiveFS(),
+				),
+			);
+		}
 
 		if (cacheImpacts?.isGlobalDependency) {
 			isGlobalDependency = true;
@@ -96,6 +106,7 @@ export function finalizeFileResults(
 
 	return {
 		dependencies: fileDependencies,
+		...(structuralDependencies.size && { structuralDependencies }),
 		isGlobalDependency,
 		languageReports,
 		reports: [

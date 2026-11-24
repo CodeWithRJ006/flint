@@ -18,9 +18,10 @@ export function collectReferencedFilePaths(
 			moduleResolutionHost,
 		);
 
-		return resolved.resolvedModule?.isExternalLibraryImport === false
-			? resolved.resolvedModule.resolvedFileName
-			: undefined;
+		if (resolved.resolvedModule) {
+			return resolved.resolvedModule.resolvedFileName;
+		}
+		return undefined;
 	}
 
 	function visit(node: AST.AnyNode) {
