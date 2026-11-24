@@ -28,7 +28,6 @@ function createHostWithCache(
 	const storage: CacheStorage = {
 		configs: {
 			[configFilePath]: cacheWriteTime,
-			"package.json": cacheWriteTime,
 		},
 		files: cachedFiles,
 		version: cacheVersion,

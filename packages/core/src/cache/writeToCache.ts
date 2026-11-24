@@ -23,7 +23,6 @@ export async function writeToCache(
 			// touch time: a fabricated "now" would mask later changes, whereas 0
 			// forces a safe re-validation on the next run.
 			[configFileName]: (await host.getFileTouchTime(configFileName)) ?? 0,
-			"package.json": (await host.getFileTouchTime("package.json")) ?? 0,
 		},
 		files: {
 			...Object.fromEntries(
@@ -36,6 +35,11 @@ export async function writeToCache(
 							),
 						}),
 						...(fileResults.isGlobalDependency && { isGlobalDependency: true }),
+						...(fileResults.structuralDependencies?.size && {
+							structuralDependencies: Array.from(
+								fileResults.structuralDependencies,
+							).toSorted(),
+						}),
 						...(fileResults.languageReports.length && {
 							languageReports: fileResults.languageReports,
 						}),
@@ -55,6 +59,16 @@ export async function writeToCache(
 		},
 		version: cacheVersion,
 	};
+
+	for (const result of lintResults.allFileResults.values()) {
+		for (const dependency of result.structuralDependencies ?? []) {
+			if (!Object.hasOwn(storage.configs, dependency)) {
+				storage.configs[dependency] =
+					// flint-disable-next-line performance/loopAwaits
+					(await host.getFileTouchTime(dependency)) ?? 0;
+			}
+		}
+	}
 
 	const encoded = cacheStorageSchema.safeEncode(storage);
 	if (!encoded.success) {

@@ -103,6 +103,7 @@ const fileCacheStorageSchema: z.ZodType<FileCacheStorage> = z.object({
 	isGlobalDependency: z.literal(true).exactOptional(),
 	languageReports: z.array(languageReportSchema).exactOptional(),
 	reports: z.array(fileReportSchema).exactOptional(),
+	structuralDependencies: dependencyPathsSchema.exactOptional(),
 	timestamp: z.number(),
 });
 
