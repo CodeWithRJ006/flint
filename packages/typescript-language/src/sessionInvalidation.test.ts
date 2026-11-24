@@ -144,7 +144,9 @@ describe.each([false, true])(
 					{},
 				);
 				expect(new Set(warm.cached?.keys())).toEqual(allPaths);
-				expect(warm.allFileResults).toEqual(cold.allFileResults);
+				expect(withoutSourceText(warm.allFileResults)).toEqual(
+					withoutSourceText(cold.allFileResults),
+				);
 				if (retainFactories) {
 					await session.lintFiles(session.allFilePaths);
 				}
@@ -165,7 +167,9 @@ describe.each([false, true])(
 				expect(allPaths.difference(disk.cached ?? new Map())).toEqual(
 					new Set(affected),
 				);
-				expect(disk.allFileResults).toEqual(session.storedResults);
+				expect(withoutSourceText(disk.allFileResults)).toEqual(
+					withoutSourceText(session.storedResults),
+				);
 				expect(
 					Array.from(cold.allFileResults)
 						.filter(([, result]) =>
@@ -184,3 +188,15 @@ describe.each([false, true])(
 		);
 	},
 );
+
+// Results restored from the cache don't retain the linted source text.
+function withoutSourceText<Result extends object>(
+	results: Map<string, Result>,
+): Map<string, Result> {
+	return new Map(
+		Array.from(results, ([filePath, result]) => [
+			filePath,
+			{ ...result, sourceText: undefined },
+		]),
+	);
+}

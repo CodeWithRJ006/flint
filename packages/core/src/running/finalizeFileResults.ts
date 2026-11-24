@@ -17,6 +17,12 @@ export interface FinalizedFileResults {
 	isGlobalDependency?: boolean;
 	languageReports: LanguageReport[];
 	reports: FileReport[];
+
+	/**
+	 * Text the reports' ranges and changes were computed against.
+	 * Absent for results restored from the cache.
+	 */
+	sourceText?: string | undefined;
 	structuralDependencies?: ReadonlySet<string>;
 	/** Unix milliseconds at the start of the lint pass, retained across checkpoints. */
 	timestamp?: number;
@@ -116,5 +122,6 @@ export function finalizeFileResults(
 			...directiveReportsFromCollector,
 			...unusedDirectiveReports,
 		],
+		sourceText: languageAndFiles[0]?.file.about.sourceText,
 	};
 }
