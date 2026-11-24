@@ -1,13 +1,15 @@
+import type { cacheVersion } from "../cache/cacheSchema.ts";
 import type { LanguageReport } from "./languages.ts";
 import type { FileReport } from "./reports.ts";
 
 export interface CacheStorage {
 	configs: Record<string, number>;
 	files: Record<string, FileCacheStorage>;
+	version?: typeof cacheVersion;
 }
 
 export interface FileCacheImpacts {
-	dependencies?: string[];
+	dependencies?: readonly string[];
 }
 
 export interface FileCacheStorage extends FileCacheImpacts {

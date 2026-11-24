@@ -4,7 +4,8 @@ import { nullThrows, pathKey } from "@flint.fyi/utils";
 
 import type { FileCacheStorage } from "../types/cache.ts";
 import type { LinterHost } from "../types/host.ts";
-import { cacheStorageSchema } from "./cacheSchema.ts";
+import { cacheStorageSchema } from "./cacheFormat.ts";
+import { cacheVersion } from "./cacheSchema.ts";
 import { getCacheFilePath } from "./getCacheFilePath.ts";
 
 const log = debugForFile(import.meta.url);
@@ -34,6 +35,9 @@ export async function readFromCache(
 	}
 
 	const cache = decodeResult.data;
+	if (cache.version !== cacheVersion) {
+		return undefined;
+	}
 	const caseSensitiveFS = host.isCaseSensitiveFS();
 	const allFilePathKeys = new Set(
 		Array.from(allFilePaths, (filePath) => pathKey(filePath, caseSensitiveFS)),

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { cacheStorageSchema } from "../cache/cacheSchema.ts";
+import { cacheStorageSchema } from "../cache/cacheFormat.ts";
+import { cacheVersion } from "../cache/cacheSchema.ts";
 import { createVFSLinterHost } from "../host/createVFSLinterHost.ts";
 import { createLanguage } from "../languages/createLanguage.ts";
 import { RuleCreator } from "../rules/RuleCreator.ts";
@@ -136,6 +137,7 @@ describe(runConfigFixing, () => {
 						"package.json": Date.now(),
 					},
 					files: { [cachedFilePath]: { timestamp: Date.now() } },
+					version: cacheVersion,
 				}),
 			);
 			const incrementRule = ruleCreator.createRule(language, {

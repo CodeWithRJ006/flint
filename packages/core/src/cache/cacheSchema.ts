@@ -17,7 +17,8 @@ import type {
 	ReportInterpolationData,
 	ReportMessageData,
 } from "../types/reports.ts";
-import { jsonCodec } from "../utils/codecs.ts";
+
+export const cacheVersion = 1;
 
 const characterReportRangeSchema: z.ZodType<CharacterReportRange> = z.object({
 	begin: z.number(),
@@ -92,20 +93,21 @@ const languageReportSchema: z.ZodType<LanguageReport> = z.object({
 	text: z.string(),
 });
 
+const dependencyPathsSchema = z.custom<readonly string[]>(
+	(value) =>
+		Array.isArray(value) && value.every((path) => typeof path === "string"),
+);
+
 const fileCacheStorageSchema: z.ZodType<FileCacheStorage> = z.object({
-	dependencies: z.array(z.string()).exactOptional(),
+	dependencies: dependencyPathsSchema.exactOptional(),
 	isGlobalDependency: z.literal(true).exactOptional(),
 	languageReports: z.array(languageReportSchema).exactOptional(),
 	reports: z.array(fileReportSchema).exactOptional(),
 	timestamp: z.number(),
 });
 
-const cacheStorageSchemaObject: z.ZodType<CacheStorage> = z.object({
+export const cacheStorageSchemaObject: z.ZodType<CacheStorage> = z.object({
 	configs: z.record(z.string(), z.number()),
 	files: z.record(z.string(), fileCacheStorageSchema),
+	version: z.literal(cacheVersion).exactOptional(),
 });
-
-export const cacheStorageSchema: z.ZodCodec<
-	z.ZodString,
-	z.ZodType<CacheStorage>
-> = jsonCodec(cacheStorageSchemaObject);

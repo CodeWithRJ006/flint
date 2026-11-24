@@ -3,7 +3,8 @@ import { debugForFile } from "debug-for-file";
 import type { CacheStorage } from "../types/cache.ts";
 import type { LinterHost } from "../types/host.ts";
 import type { LintResults } from "../types/linting.ts";
-import { cacheStorageSchema } from "./cacheSchema.ts";
+import { cacheStorageSchema } from "./cacheFormat.ts";
+import { cacheVersion } from "./cacheSchema.ts";
 import { getCacheFilePath } from "./getCacheFilePath.ts";
 
 const log = debugForFile(import.meta.url);
@@ -52,6 +53,7 @@ export async function writeToCache(
 					),
 				)),
 		},
+		version: cacheVersion,
 	};
 
 	const encoded = cacheStorageSchema.safeEncode(storage);
