@@ -2,17 +2,22 @@ import { describe, expect, it } from "vitest";
 import z from "zod/v4";
 
 import type { CacheStorage } from "../types/cache.ts";
+import { cacheVersion, encodeCacheStorage } from "./cacheFormat.ts";
 import { cacheStorageSchema } from "./cacheSchema.ts";
+
+const { stringify } = JSON;
 
 describe("cacheStorageSchema decoding", () => {
 	it("rejects an explicitly false global invalidation flag", () => {
 		const result = cacheStorageSchema.safeDecode(
-			JSON.stringify({
-				configs: {},
-				files: {
-					"src/index.ts": { isGlobalDependency: false, timestamp: 123 },
-				},
-			}),
+			stringify(
+				encodeCacheStorage({
+					configs: {},
+					files: {
+						"src/index.ts": { isGlobalDependency: false, timestamp: 123 },
+					},
+				} as unknown as CacheStorage),
+			),
 		);
 
 		expect(result.success).toBe(false);
@@ -31,33 +36,34 @@ describe("cacheStorageSchema decoding", () => {
 			},
 		};
 
-		const result = z.safeDecode(cacheStorageSchema, JSON.stringify(validCache));
+		const result = z.safeDecode(
+			cacheStorageSchema,
+			stringify(encodeCacheStorage(validCache)),
+		);
 
 		expect(result.success).toBe(true);
 	});
 
 	it("rejects cache missing configs", () => {
 		const invalidCache = {
-			files: {},
+			files: [],
+			groups: [],
+			paths: [],
 		};
 
-		const result = z.safeDecode(
-			cacheStorageSchema,
-			JSON.stringify(invalidCache),
-		);
+		const result = z.safeDecode(cacheStorageSchema, stringify(invalidCache));
 
 		expect(result.success).toBe(false);
 	});
 
 	it("rejects cache missing files", () => {
 		const invalidCache = {
-			configs: {},
+			configs: [],
+			groups: [],
+			paths: [],
 		};
 
-		const result = z.safeDecode(
-			cacheStorageSchema,
-			JSON.stringify(invalidCache),
-		);
+		const result = z.safeDecode(cacheStorageSchema, stringify(invalidCache));
 
 		expect(result.success).toBe(false);
 	});
@@ -74,7 +80,7 @@ describe("cacheStorageSchema decoding", () => {
 
 		const result = z.safeDecode(
 			cacheStorageSchema,
-			JSON.stringify(invalidCache),
+			stringify(encodeCacheStorage(invalidCache as unknown as CacheStorage)),
 		);
 
 		expect(result.success).toBe(false);
@@ -92,7 +98,10 @@ describe("cacheStorageSchema decoding", () => {
 			},
 		};
 
-		const result = z.safeDecode(cacheStorageSchema, JSON.stringify(validCache));
+		const result = z.safeDecode(
+			cacheStorageSchema,
+			stringify(encodeCacheStorage(validCache)),
+		);
 
 		expect(result.success).toBe(true);
 	});
@@ -125,7 +134,10 @@ describe("cacheStorageSchema decoding", () => {
 			},
 		};
 
-		const result = z.safeDecode(cacheStorageSchema, JSON.stringify(validCache));
+		const result = z.safeDecode(
+			cacheStorageSchema,
+			stringify(encodeCacheStorage(validCache)),
+		);
 
 		expect(result.success).toBe(true);
 		expect(result).toEqual(
@@ -177,7 +189,10 @@ describe("cacheStorageSchema decoding", () => {
 			},
 		};
 
-		const result = z.safeDecode(cacheStorageSchema, JSON.stringify(validCache));
+		const result = z.safeDecode(
+			cacheStorageSchema,
+			stringify(encodeCacheStorage(validCache)),
+		);
 
 		expect(result.success).toBe(true);
 	});
@@ -207,20 +222,20 @@ describe("cacheStorageSchema decoding", () => {
 
 		const result = z.safeDecode(
 			cacheStorageSchema,
-			JSON.stringify(invalidCache),
+			stringify(encodeCacheStorage(invalidCache as unknown as CacheStorage)),
 		);
 
 		expect(result.success).toBe(false);
 	});
 
 	it("rejects null input", () => {
-		const result = z.safeDecode(cacheStorageSchema, JSON.stringify(null));
+		const result = z.safeDecode(cacheStorageSchema, stringify(null));
 
 		expect(result.success).toBe(false);
 	});
 
 	it("rejects undefined input", () => {
-		const result = z.safeDecode(cacheStorageSchema, JSON.stringify(undefined));
+		const result = z.safeDecode(cacheStorageSchema, "undefined");
 
 		expect(result.success).toBe(false);
 	});
@@ -233,7 +248,7 @@ describe("cacheStorageSchema decoding", () => {
 
 		const result = z.safeDecode(
 			cacheStorageSchema,
-			JSON.stringify(invalidCache),
+			stringify(encodeCacheStorage(invalidCache as unknown as CacheStorage)),
 		);
 
 		expect(result.success).toBe(false);
@@ -265,7 +280,7 @@ describe("cacheStorageSchema decoding", () => {
 
 		const result = z.safeDecode(
 			cacheStorageSchema,
-			JSON.stringify(invalidCache),
+			stringify(encodeCacheStorage(invalidCache as unknown as CacheStorage)),
 		);
 
 		expect(result.success).toBe(false);
@@ -298,7 +313,7 @@ describe("cacheStorageSchema decoding", () => {
 
 		const result = z.safeDecode(
 			cacheStorageSchema,
-			JSON.stringify(invalidCache),
+			stringify(encodeCacheStorage(invalidCache as unknown as CacheStorage)),
 		);
 
 		expect(result.success).toBe(false);
@@ -306,6 +321,76 @@ describe("cacheStorageSchema decoding", () => {
 });
 
 describe("cacheStorageSchema", () => {
+	it("stores paths once and preserves shared dependency arrays when decoding", () => {
+		const cache: CacheStorage = {
+			configs: {},
+			files: {
+				"a.ts": {
+					dependencies: ["/shared/a.ts", "/shared/b.ts"],
+					timestamp: 1,
+				},
+				"b.ts": {
+					dependencies: ["/shared/a.ts", "/shared/b.ts"],
+					timestamp: 2,
+				},
+				"c.ts": { dependencies: ["/shared/a.ts"], timestamp: 3 },
+				"d.ts": {
+					dependencies: ["/shared/b.ts", "/shared/a.ts"],
+					timestamp: 4,
+				},
+				"emoji-😀.ts": {
+					dependencies: ["/shared/config-😁.json"],
+					timestamp: 6,
+				},
+				"empty.ts": { dependencies: [], timestamp: 5 },
+			},
+		};
+		const encoded = cacheStorageSchema.encode(cache);
+		const decoded = cacheStorageSchema.decode(encoded);
+		expect(decoded).toEqual(cache);
+		expect(encoded.split('"/shared/a.ts"')).toHaveLength(2);
+		expect(decoded.files["a.ts"]?.dependencies).toBe(
+			decoded.files["b.ts"]?.dependencies,
+		);
+		expect(decoded.files["a.ts"]?.dependencies).not.toBe(
+			decoded.files["c.ts"]?.dependencies,
+		);
+	});
+
+	it.each([
+		{ paths: [[1, "a.ts"]] },
+		{ groups: [[1, []]] },
+		{ groups: [[0, [1]]] },
+		{ files: [[1, 123, -1]] },
+		{ files: [[0, 123, 1]] },
+	])("rejects invalid table references and prefixes: %j", (invalid) => {
+		const stored = {
+			configs: [],
+			files: [[0, 123, -1]],
+			groups: [[0, []]],
+			paths: [[0, "a.ts"]],
+			version: cacheVersion,
+		};
+		expect(cacheStorageSchema.decode(stringify(stored))).toEqual({
+			configs: {},
+			files: { "a.ts": { timestamp: 123 } },
+			version: cacheVersion,
+		});
+		expect(
+			cacheStorageSchema.safeDecode(stringify({ ...stored, ...invalid }))
+				.success,
+		).toBe(false);
+	});
+
+	it("rejects non-path dependency values", () => {
+		expect(
+			cacheStorageSchema.safeEncode({
+				configs: {},
+				files: { "a.ts": { dependencies: [123], timestamp: 1 } },
+			} as unknown as CacheStorage).success,
+		).toBe(false);
+	});
+
 	it("encodes valid cache data to JSON string", () => {
 		const validCache: CacheStorage = {
 			configs: {
@@ -322,7 +407,7 @@ describe("cacheStorageSchema", () => {
 		const encoded = z.encode(cacheStorageSchema, validCache);
 
 		expect(typeof encoded).toBe("string");
-		expect(JSON.parse(encoded)).toEqual(validCache);
+		expect(cacheStorageSchema.decode(encoded)).toEqual(validCache);
 	});
 
 	it("decodes valid JSON string to cache data", () => {
@@ -334,7 +419,7 @@ describe("cacheStorageSchema", () => {
 				},
 			},
 		};
-		const json = JSON.stringify(validCache);
+		const json = stringify(encodeCacheStorage(validCache));
 
 		const decoded = z.decode(cacheStorageSchema, json);
 
@@ -358,16 +443,13 @@ describe("cacheStorageSchema", () => {
 	it("fails to decode invalid JSON string", () => {
 		const invalidJson = "{ invalid json }";
 
-		const result = z.safeDecode(
-			cacheStorageSchema,
-			JSON.stringify(invalidJson),
-		);
+		const result = z.safeDecode(cacheStorageSchema, stringify(invalidJson));
 
 		expect(result.success).toBe(false);
 	});
 
 	it("fails to decode valid JSON with invalid schema", () => {
-		const validJsonInvalidSchema = JSON.stringify({
+		const validJsonInvalidSchema = stringify({
 			configs: "not-a-record",
 			files: {},
 		});
