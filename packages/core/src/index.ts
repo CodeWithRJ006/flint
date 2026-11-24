@@ -56,6 +56,9 @@ export { parseOptions } from "./running/parseOptions.ts";
 export { processRuleReport } from "./running/processRuleReport.ts";
 export { runConfig } from "./running/runConfig.ts";
 export {
+	fixLintSession,
+	type FixLintSessionOptions,
+	type FixLintSessionResults,
 	maximumFixIterations,
 	runConfigFixing,
 } from "./running/runConfigFixing.ts";
