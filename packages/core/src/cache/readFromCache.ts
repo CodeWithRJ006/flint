@@ -1,6 +1,7 @@
 import { debugForFile } from "debug-for-file";
+import { resolve } from "pathe";
 
-import { nullThrows, pathKey } from "@flint.fyi/utils";
+import { pathKey } from "@flint.fyi/utils";
 
 import type { FileCacheStorage } from "../types/cache.ts";
 import type { LinterHost } from "../types/host.ts";
@@ -10,173 +11,86 @@ import { getCacheFilePath } from "./getCacheFilePath.ts";
 
 const log = debugForFile(import.meta.url);
 
+export interface ValidatedCacheCheckpoint {
+	changedFilePaths: Set<string>;
+	files: Map<string, FileCacheStorage>;
+}
+
 export async function readFromCache(
 	host: LinterHost,
 	allFilePaths: Set<string>,
 	configFilePath: string,
 	cacheLocation: string | undefined,
-): Promise<Map<string, FileCacheStorage> | undefined> {
-	const cacheFilePath = getCacheFilePath(cacheLocation);
-	const rawCacheString = await host.readFile(cacheFilePath);
-
+): Promise<undefined | ValidatedCacheCheckpoint> {
+	const rawCacheString = await host.readFile(getCacheFilePath(cacheLocation));
 	if (!rawCacheString) {
-		log("Linting all %d file path(s) due to lack of cache.", allFilePaths.size);
 		return undefined;
 	}
-
-	const decodeResult = cacheStorageSchema.safeDecode(rawCacheString);
-	if (!decodeResult.success) {
-		log(
-			"Linting all %d file path(s) due to invalid cache data: %s",
-			allFilePaths.size,
-			decodeResult.error.message,
-		);
+	const decoded = cacheStorageSchema.safeDecode(rawCacheString);
+	if (!decoded.success || decoded.data.version !== cacheVersion) {
+		log("Ignoring an incompatible cache checkpoint.");
 		return undefined;
 	}
-
-	const cache = decodeResult.data;
-	if (cache.version !== cacheVersion) {
-		return undefined;
-	}
-	const caseSensitiveFS = host.isCaseSensitiveFS();
-	const allFilePathKeys = new Set(
-		Array.from(allFilePaths, (filePath) => pathKey(filePath, caseSensitiveFS)),
-	);
-
-	for (const filePath of new Set([
-		configFilePath,
-		...Object.keys(cache.configs),
-	])) {
-		if (!Object.hasOwn(cache.configs, filePath)) {
-			log(
-				"Linting all %d file path(s) due to no cache of %s",
-				allFilePaths.size,
-				filePath,
-			);
-			return undefined;
-		}
-
-		const timestampCached = nullThrows(
-			cache.configs[filePath],
-			"Cache timestamp is expected to be present",
-		);
-		// flint-disable-next-line performance/loopAwaits
-		const timestampTouched = await host.getFileTouchTime(filePath);
-		if (
-			filePath === configFilePath
-				? timestampTouched == null || timestampTouched > timestampCached
-				: (timestampTouched ?? 0) !== timestampCached
-		) {
-			log(
-				"Linting all %d file path(s) due to %s touch timestamp %d after cache timestamp %d",
-				allFilePaths.size,
-				filePath,
-				timestampTouched,
-				timestampCached,
-			);
-			return undefined;
-		}
-	}
-
-	const cached = new Map(Object.entries(cache.files));
-	const dependencyTouchTimes = new Map<string, number | undefined>();
-
-	for (const [filePath, fileCached] of cached) {
-		if (!fileCached.isGlobalDependency) {
-			continue;
-		}
-
-		// flint-disable-next-line performance/loopAwaits
-		const currentTouchTime = await host.getFileTouchTime(filePath);
-		if (currentTouchTime == null || currentTouchTime > fileCached.timestamp) {
-			log(
-				"Linting all %d file(s) because cache-invalidating file %s has changed (current: %d, cached: %d)",
-				allFilePaths.size,
-				filePath,
-				currentTouchTime,
-				fileCached.timestamp,
-			);
-			return undefined;
-		}
-	}
-
-	// Any files touched since last cache write will need to be re-linted
-	for (const filePath of allFilePaths) {
-		const fileCached = cached.get(filePath);
-		if (!fileCached) {
-			log("No cache available for: %s", filePath);
-			continue;
-		}
-
-		// flint-disable-next-line performance/loopAwaits
-		if (await hasOutdatedDependency(filePath, fileCached)) {
-			cached.delete(filePath);
-			continue;
-		}
-
-		const timestampCached = fileCached.timestamp;
-		// flint-disable-next-line performance/loopAwaits
-		const timestampTouched = await host.getFileTouchTime(filePath);
-		if (timestampTouched == null || timestampTouched > timestampCached) {
-			log(
-				"Directly invalidating cache for: %s due to touch timestamp %d after cache timestamp %d",
-				filePath,
-				timestampTouched,
-				timestampCached,
-			);
-			cached.delete(filePath);
-		}
-	}
-
-	// Remove cached files that no longer exist
-	for (const filePath of cached.keys()) {
-		if (!allFilePaths.has(filePath)) {
-			cached.delete(filePath);
-			log("Removing non-existent file from cache: %s", filePath);
-		}
-	}
-
-	log(
-		"Retrieved from %s: %d file(s) cached out of %d",
-		cacheFilePath,
-		cached.size,
-		allFilePaths.size,
-	);
-	return cached;
-
-	async function getDependencyTouchTime(dependency: string) {
-		if (dependencyTouchTimes.has(dependency)) {
-			return dependencyTouchTimes.get(dependency);
-		}
-
-		const touchTime = await host.getFileTouchTime(dependency);
-		dependencyTouchTimes.set(dependency, touchTime);
-		return touchTime;
-	}
-
-	async function hasOutdatedDependency(
-		filePath: string,
-		fileCached: FileCacheStorage,
+	const cache = decoded.data;
+	const configTimestamp = cache.configs[configFilePath];
+	const configTouchTime = await host.getFileTouchTime(configFilePath);
+	if (
+		configTimestamp === undefined ||
+		configTouchTime === undefined ||
+		configTouchTime > configTimestamp
 	) {
-		for (const dependency of fileCached.dependencies ?? []) {
-			if (allFilePathKeys.has(pathKey(dependency, caseSensitiveFS))) {
+		return undefined;
+	}
+
+	const changedFilePaths = new Set<string>();
+	for (const [filePath, timestamp] of Object.entries(cache.configs)) {
+		if (
+			filePath !== configFilePath &&
+			// flint-disable-next-line performance/loopAwaits
+			((await host.getFileTouchTime(filePath)) ?? 0) !== timestamp
+		) {
+			changedFilePaths.add(filePath);
+		}
+	}
+	const files = new Map(Object.entries(cache.files));
+	const allFileKeys = new Set(
+		Array.from(allFilePaths, (filePath) =>
+			pathKey(
+				resolve(host.getCurrentDirectory(), filePath),
+				host.isCaseSensitiveFS(),
+			),
+		),
+	);
+	const touchTimes = new Map<string, number | undefined>();
+	for (const [filePath, file] of files) {
+		// flint-disable-next-line performance/loopAwaits
+		const touched = await host.getFileTouchTime(filePath);
+		if (touched === undefined || touched > file.timestamp) {
+			changedFilePaths.add(filePath);
+		}
+		for (const dependency of file.dependencies ?? []) {
+			if (
+				allFileKeys.has(
+					pathKey(
+						resolve(host.getCurrentDirectory(), dependency),
+						host.isCaseSensitiveFS(),
+					),
+				)
+			) {
 				continue;
 			}
-
-			// flint-disable-next-line performance/loopAwaits
-			const timestampTouched = await getDependencyTouchTime(dependency);
-			if (timestampTouched == null || timestampTouched > fileCached.timestamp) {
-				log(
-					"Directly invalidating cache for: %s due to dependency %s touch timestamp %d after cache timestamp %d",
-					filePath,
-					dependency,
-					timestampTouched,
-					fileCached.timestamp,
-				);
-				return true;
+			if (!touchTimes.has(dependency)) {
+				// flint-disable-next-line performance/loopAwaits
+				touchTimes.set(dependency, await host.getFileTouchTime(dependency));
+			}
+			const touched = touchTimes.get(dependency);
+			if (touched === undefined || touched > file.timestamp) {
+				changedFilePaths.add(dependency);
 			}
 		}
-
-		return false;
 	}
+	for (const filePath of allFilePaths.difference(files)) {
+		changedFilePaths.add(filePath);
+	}
+	return { changedFilePaths, files };
 }

@@ -15,7 +15,6 @@ import {
 	writeToCache,
 	type LinterHost,
 	type LintResults,
-	type LintResultsWithChanges,
 	type ProcessedConfigDefinition,
 } from "@flint.fyi/core";
 import { addFlintAssertionContext, pathKey } from "@flint.fyi/utils";
@@ -113,19 +112,6 @@ export async function runCliWatch(
 			lintSession = await LintSession.create(configDefinition, sessionHost);
 		}
 
-		function createLintResults(
-			session: LintSession,
-			changed: Set<string>,
-		): LintResultsWithChanges {
-			return {
-				allFilePaths: session.allFilePaths,
-				allFileResults: new Map(session.storedResults),
-				cached: undefined,
-				changed,
-				ruleCount: session.ruleCount,
-			};
-		}
-
 		async function applyFixes(
 			session: LintSession,
 			initialResults: LintResults["allFileResults"],
@@ -208,7 +194,7 @@ export async function runCliWatch(
 							})
 						).allFileResults,
 			);
-			const lintResults = createLintResults(lintSession, changed);
+			const lintResults = { ...lintSession.getResults(), changed };
 			const dependencies = new Set<string>();
 			for (const result of lintResults.allFileResults.values()) {
 				for (const dependency of [
